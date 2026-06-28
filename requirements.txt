@@ -1,4 +1,4 @@
-streamlit==1.35.0
-pandas==2.2.2
-python-escpos==3.1
-pyusb==1.2.1
+streamlit
+pandas
+python-escpos
+
