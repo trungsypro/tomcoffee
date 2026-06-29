@@ -270,16 +270,22 @@ if not st.session_state.logged_in:
             login(user_input, pass_input)
     st.stop()
 
-st.sidebar.markdown(f"**Tài khoản:** {st.session_state.username} ({st.session_state.user_role})")
-if st.sidebar.button("Đăng xuất"):
-    logout()
+st.sidebar.markdown(f"👤 **Tài khoản:** `{st.session_state.username}` ({st.session_state.user_role})")
 
 if st.session_state.user_role == "Chủ quán":
     menu_options = ["🛒 Gọi Món & Tính Tiền", "📋 Quản Lý Menu", "📊 Báo Cáo Doanh Thu", "⚙️ Cài Đặt Hệ Thống"]
 else:
     menu_options = ["🛒 Gọi Món & Tính Tiền"]
 
-choice = st.sidebar.selectbox("Chức năng", menu_options)
+# --- THAY ĐỔI TỪ SELECTBOX THÀNH RADIO ĐỂ HIỂN THỊ HẾT RA NGOÀI SIDEBAR ---
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🗺️ DANH MỤC CHỨC NĂNG")
+choice = st.sidebar.radio("Chọn màn hình làm việc:", menu_options, label_visibility="collapsed")
+
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Đăng xuất hệ thống", use_container_width=True):
+    logout()
+
 LIST_CATEGORIES = ["Cà phê", "Nước ép", "Sinh tố", "Trà trái cây", "Đồ ăn vặt", "Khác"]
 
 # --- CHỨC NĂNG 1: SƠ ĐỒ BÀN & GỌI MÓN ---
@@ -372,30 +378,52 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                 col1, col2 = st.columns([5, 4])
                 
                 with col1:
-                    st.markdown("**Menu đồ uống & đồ ăn vặt:**")
+                    st.markdown("**Menu món ăn & đồ uống công khai (Bấm nút để chọn món):**")
                     df_current_menu = pd.DataFrame(menu_data, columns=["id", "name", "price", "category"])
                     available_categories = df_current_menu["category"].unique()
+                    
                     tabs = st.tabs(list(available_categories))
                     
                     for index, cat_name in enumerate(available_categories):
                         with tabs[index]:
                             df_filtered = df_current_menu[df_current_menu["category"] == cat_name]
-                            for _, row in df_filtered.iterrows():
+                            
+                            grid_cols = st.columns(2)
+                            for idx, (_, row) in enumerate(df_filtered.iterrows()):
                                 item_id, name, price = row["id"], row["name"], row["price"]
-                                col_name, col_price, col_qty = st.columns([3, 2, 2])
-                                col_name.write(f"**{name}**")
-                                col_price.write(f"{format_currency(price)} đ")
+                                target_col = grid_cols[idx % 2]
                                 
                                 current_qty = st.session_state.tables_cart[active_table].get(name, {}).get("qty", 0)
-                                qty = col_qty.number_input(f"SL", min_value=0, max_value=20, step=1, value=current_qty, key=f"qty_{active_table}_{item_id}")
                                 
-                                if qty != current_qty:
-                                    if qty > 0:
-                                        st.session_state.tables_cart[active_table][name] = {"price": price, "qty": qty}
-                                    elif name in st.session_state.tables_cart[active_table] and qty == 0:
-                                        del st.session_state.tables_cart[active_table][name]
-                                    save_cart_item_to_db(active_table, name, qty, price)
-                                    st.rerun()
+                                with target_col:
+                                    st.markdown(
+                                        f"""<div style="background-color: #f0f4f8; padding: 10px; border-radius: 8px; border-left: 5px solid #2e7d32; margin-bottom: 5px; color: black;">
+                                            <p style="margin: 0; font-weight: bold; font-size: 15px;">{name}</p>
+                                            <p style="margin: 0; color: #555; font-size: 13px;">Giá: {format_currency(price)} đ</p>
+                                        </div>""", 
+                                        unsafe_allow_html=True
+                                    )
+                                    
+                                    q_c1, q_c2, q_c3 = st.columns([1, 1, 1])
+                                    
+                                    if q_c1.button("➖", key=f"minus_{active_table}_{item_id}", use_container_width=True):
+                                        if current_qty > 0:
+                                            new_qty = current_qty - 1
+                                            if new_qty > 0:
+                                                st.session_state.tables_cart[active_table][name] = {"price": price, "qty": new_qty}
+                                            else:
+                                                if name in st.session_state.tables_cart[active_table]:
+                                                    del st.session_state.tables_cart[active_table][name]
+                                            save_cart_item_to_db(active_table, name, new_qty, price)
+                                            st.rerun()
+                                            
+                                    q_c2.markdown(f"<h4 style='text-align: center; margin: 0; padding-top: 2px; color: black;'>{current_qty}</h4>", unsafe_allow_html=True)
+                                    
+                                    if q_c3.button("➕", key=f"plus_{active_table}_{item_id}", use_container_width=True):
+                                        new_qty = current_qty + 1
+                                        st.session_state.tables_cart[active_table][name] = {"price": price, "qty": new_qty}
+                                        save_cart_item_to_db(active_table, name, new_qty, price)
+                                        st.rerun()
 
                 with col2:
                     st.markdown(f"**🛒 Chi tiết hóa đơn tạm tính của {active_table}:**")
@@ -413,7 +441,7 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                         
                         st.table(pd.DataFrame(invoice_data, columns=["Tên Món", "SL", "Đơn Giá (đ)", "Thành Tiền (đ)"]))
                         
-                        discount_type = st.radio("Loại giảm giá:", ["Theo phần trăm (%)", "Giảm tiền trực tiếp (đ)"], horizontal=True, key=f"disc_type_{active_table}")
+                        discount_type = st.radio("Loại giảm giá:", ["Theo phần禅 (%)", "Giảm tiền trực tiếp (đ)"], horizontal=True, key=f"disc_type_{active_table}")
                         discount_amount = 0
                         if discount_type == "Theo phần trăm (%)":
                             discount_value = st.number_input("Nhập % giảm giá:", min_value=0, max_value=100, key=f"disc_val_p_{active_table}")
