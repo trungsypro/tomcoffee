@@ -68,7 +68,7 @@ def init_db():
                     bank_id TEXT DEFAULT 'Vietcombank',
                     account_no TEXT DEFAULT '123456789',
                     account_name TEXT DEFAULT 'NGUYEN TRUNG SY')''')
-    # Bảng quản lý Sổ thu chi (Mới)
+    # Bảng quản lý Sổ thu chi
     c.execute('''CREATE TABLE IF NOT EXISTS cash_flow (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     type TEXT NOT NULL,       -- 'Thu' hoặc 'Chi'
@@ -255,6 +255,7 @@ def login(username, password):
         st.session_state.logged_in = True
         st.session_state.user_role = user_data[0][1] 
         st.session_state.username = username
+        st.toast(f"👋 Chào mừng {username} quay trở lại!", icon="🚀")
         st.rerun()
     else:
         st.error("Sai tài khoản hoặc mật khẩu!")
@@ -286,7 +287,7 @@ if st.session_state.user_role == "Chủ quán":
         "🛒 Gọi Món & Tính Tiền", 
         "📋 Quản Lý Menu", 
         "📊 Báo Cáo Doanh Thu", 
-        "💰 Quản Lý Thu Chi",   # Tích hợp thêm phân hệ Thu chi mới
+        "💰 Quản Lý Thu Chi",   
         "⚙️ Cài Đặt Hệ Thống"
     ]
 else:
@@ -294,11 +295,11 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🗺️ DANH MỤC CHỨC NĂNG")
-# Sử dụng thanh lựa chọn Radio lôi thẳng các mục ra ngoài không cần list đổ xuống nữa
 choice = st.sidebar.radio("Chọn màn hình làm việc:", menu_options, label_visibility="collapsed")
 
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Đăng xuất hệ thống", use_container_width=True):
+    st.toast("Đang đăng xuất khỏi hệ thống...", icon="🚪")
     logout()
 
 LIST_CATEGORIES = ["Cà phê", "Nước ép", "Sinh tố", "Trà trái cây", "Đồ ăn vặt", "Khác"]
@@ -324,7 +325,6 @@ if choice == "🛒 Gọi Món & Tính Tiền":
         qr_name_encoded = v_name.replace(" ", "%20")
         vietqr_url = f"https://img.vietqr.io/image/{v_bank}-{v_no}-qr_only.png?amount={int(inv['final'])}&addInfo={qr_memo}&accountName={qr_name_encoded}"
 
-        # Đã làm sạch khoảng cách lề chuỗi HTML để triệt để loại bỏ hộp đen hiển thị code thừa
         html_bill = f"""<div style="background-color: #f8f9fa; padding: 25px; border-radius: 10px; border: 1px dashed #333; max-width: 400px; margin: auto; font-family: 'Courier New', Courier, monospace; color: black;">
 <h2 style="text-align: center; margin-bottom: 5px;">TOM CAFÉ</h2>
 <p style="text-align: center; font-size: 12px; margin-top: 0;">HÓA ĐƠN THANH TOÁN</p>
@@ -379,6 +379,7 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                 
                 if st.button(btn_label, key=f"btn_{t_name}", use_container_width=True, type=btn_type):
                     st.session_state.selected_table = t_name
+                    st.toast(f"📋 Đã chọn không gian làm việc tại {t_name}", icon="📍")
                     st.rerun()
         
         st.markdown("---")
@@ -431,6 +432,7 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                                                 if name in st.session_state.tables_cart[active_table]:
                                                     del st.session_state.tables_cart[active_table][name]
                                             save_cart_item_to_db(active_table, name, new_qty, price)
+                                            st.toast(f"📉 Đã giảm số lượng món: {name}", icon="☕")
                                             st.rerun()
                                             
                                     q_c2.markdown(f"<h4 style='text-align: center; margin: 0; padding-top: 2px; color: black;'>{current_qty}</h4>", unsafe_allow_html=True)
@@ -439,6 +441,7 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                                         new_qty = current_qty + 1
                                         st.session_state.tables_cart[active_table][name] = {"price": price, "qty": new_qty}
                                         save_cart_item_to_db(active_table, name, new_qty, price)
+                                        st.toast(f"📈 Đã thêm món vào giỏ: {name}", icon="⚡")
                                         st.rerun()
 
                 with col2:
@@ -475,44 +478,48 @@ if choice == "🛒 Gọi Món & Tính Tiền":
                             clear_clicked = st.button("🗑️ Xóa Đơn Tạm Thời", type="secondary", use_container_width=True, key=f"clear_btn_{active_table}")
                         
                         if pay_clicked:
-                            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            print_success, error_msg = print_xprinter(active_table, current_cart, total_bill, discount_amount, final_bill)
-                            
-                            conn = sqlite3.connect('cafe_management.db')
-                            c = conn.cursor()
-                            c.execute("INSERT INTO orders (table_num, total_price, discount, final_price, created_at) VALUES (?, ?, ?, ?, ?)", 
-                                      (active_table, total_bill, discount_amount, final_bill, now))
-                            order_id = c.lastrowid
-                            for name, info in current_cart.items():
-                                c.execute("INSERT INTO order_details (order_id, item_name, quantity, price) VALUES (?, ?, ?, ?)",
-                                          (order_id, name, info["qty"], info["price"]))
-                            conn.commit()
-                            conn.close()
-                            
-                            clear_table_cart_from_db(active_table) 
-                            st.session_state.tables_cart[active_table] = {} 
-                            st.session_state.selected_table = None 
-                            
-                            if print_success:
-                                st.success("🎉 Đã in hoá đơn thành công ra máy Xprinter!")
-                                st.rerun()
-                            else:
-                                st.session_state.last_invoice_data = {
-                                    "table_num": active_table,
-                                    "date": now,
-                                    "cart": current_cart.copy(),
-                                    "total": total_bill,
-                                    "discount": discount_amount,
-                                    "final": final_bill
-                                }
-                                st.session_state.show_online_invoice = True
-                                st.rerun()
+                            with st.spinner("🔄 Đang xử lý giao dịch và khởi tạo hóa đơn..."):
+                                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                print_success, error_msg = print_xprinter(active_table, current_cart, total_bill, discount_amount, final_bill)
+                                
+                                conn = sqlite3.connect('cafe_management.db')
+                                c = conn.cursor()
+                                c.execute("INSERT INTO orders (table_num, total_price, discount, final_price, created_at) VALUES (?, ?, ?, ?, ?)", 
+                                          (active_table, total_bill, discount_amount, final_bill, now))
+                                order_id = c.lastrowid
+                                for name, info in current_cart.items():
+                                    c.execute("INSERT INTO order_details (order_id, item_name, quantity, price) VALUES (?, ?, ?, ?)",
+                                              (order_id, name, info["qty"], info["price"]))
+                                conn.commit()
+                                conn.close()
+                                
+                                clear_table_cart_from_db(active_table) 
+                                st.session_state.tables_cart[active_table] = {} 
+                                st.session_state.selected_table = None 
+                                
+                                if print_success:
+                                    st.success(f"🎉 Đã thanh toán và xuất hóa đơn Xprinter thành công cho {active_table}!")
+                                    st.toast("In hóa đơn thành công!", icon="🖨️")
+                                    st.rerun()
+                                else:
+                                    st.session_state.last_invoice_data = {
+                                        "table_num": active_table,
+                                        "date": now,
+                                        "cart": current_cart.copy(),
+                                        "total": total_bill,
+                                        "discount": discount_amount,
+                                        "final": final_bill
+                                    }
+                                    st.session_state.show_online_invoice = True
+                                    st.toast("Khởi tạo mã VietQR thanh toán!", icon="💳")
+                                    st.rerun()
                         
                         if clear_clicked:
                             clear_table_cart_from_db(active_table)
                             st.session_state.tables_cart[active_table] = {}
                             st.session_state.selected_table = None
                             st.success(f"🧹 Đã hủy toàn bộ món tạm tính của {active_table}!")
+                            st.toast("Đã xóa giỏ hàng tạm thời", icon="🗑️")
                             st.rerun()
         else:
             st.info("💡 Vui lòng bấm chọn một bàn phía trên để tiến hành lên đơn gọi món.")
@@ -529,8 +536,11 @@ elif choice == "📋 Quản Lý Menu" and st.session_state.user_role == "Chủ q
         if st.button("Lưu món"):
             if new_name:
                 run_query("INSERT INTO menu (name, price, category) VALUES (?, ?, ?)", (new_name, new_price, new_category))
-                st.success(f"Đã thêm thành công: [{new_category}] {new_name}")
+                st.success(f"🎉 Đã thêm thành công món: [{new_category}] {new_name}")
+                st.toast("Đã cập nhật cơ sở dữ liệu menu!", icon="💾")
                 st.rerun()
+            else:
+                st.error("Vui lòng nhập tên món ăn!")
     with tab2:
         menu_data = run_query("SELECT id, name, price, category FROM menu ORDER BY category ASC", fetch=True)
         if menu_data:
@@ -542,6 +552,8 @@ elif choice == "📋 Quản Lý Menu" and st.session_state.user_role == "Chủ q
             delete_id = st.number_input("Nhập ID món muốn xóa:", min_value=1, step=1)
             if st.button("Xóa ngay"):
                 run_query("DELETE FROM menu WHERE id = ?", (delete_id,))
+                st.success(f"❌ Đã xóa món có mã ID {delete_id} khỏi menu hệ thống!")
+                st.toast("Đã xóa món thành công", icon="🗑️")
                 st.rerun()
 
 # --- CHỨC NĂNG 3: BÁO CÁO DOANH THU ---
@@ -605,14 +617,16 @@ elif choice == "📊 Báo Cáo Doanh Thu" and st.session_state.user_role == "Ch�
         st.dataframe(df_orders_display, use_container_width=True)
         
         st.markdown("---")
+        st.markdown("---")
         st.markdown("🛠️ **Quản lý hóa đơn lỗi:**")
         del_order_id = st.number_input("Nhập mã hóa đơn muốn xóa lỗi khỏi hệ thống:", min_value=1, step=1)
         if st.button("Xóa hóa đơn"):
             run_query("DELETE FROM orders WHERE id = ?", (del_order_id,))
-            st.success(f"Đã xóa hóa đơn mã số {del_order_id} thành công.")
+            st.success(f"❌ Đã xóa hóa đơn mã số {del_order_id} thành công khỏi hệ thống dữ liệu báo cáo.")
+            st.toast("Đã cập nhật doanh thu", icon="📉")
             st.rerun()
 
-# --- CHỨC NĂNG VỪA THÊM: QUẢN LÝ SỔ THU CHI LINH HOẠT ---
+# --- CHỨC NĂNG 4: QUẢN LÝ SỔ THU CHI LINH HOẠT ---
 elif choice == "💰 Quản Lý Thu Chi" and st.session_state.user_role == "Chủ quán":
     st.header("💰 Sổ Quản Lý Thu Chi Nội Bộ")
     
@@ -640,7 +654,8 @@ elif choice == "💰 Quản Lý Thu Chi" and st.session_state.user_role == "Ch�
                 date_str = f_date.strftime("%Y-%m-%d")
                 run_query("INSERT INTO cash_flow (type, category, amount, note, created_at) VALUES (?, ?, ?, ?, ?)",
                           (type_db, f_cat, f_amount, f_note, date_str))
-                st.success(f"🎉 Đã lưu thành công khoản {type_db}: {format_currency(f_amount)} đ vào Sổ quỹ!")
+                st.success(f"🎉 Đã lưu thành công khoản {type_db}: {format_currency(f_amount)} đ vào Sổ quỹ nội bộ!")
+                st.toast(f"Đã lưu phiếu {type_db}", icon="💵")
                 st.rerun()
                 
     with tab_report_flow:
@@ -678,17 +693,14 @@ elif choice == "💰 Quản Lý Thu Chi" and st.session_state.user_role == "Ch�
         f_start_str = f_start.strftime("%Y-%m-%d")
         f_end_str = f_end.strftime("%Y-%m-%d")
         
-        # 1. Truy vấn các giao dịch thu chi ngoài
         flow_data = run_query("SELECT id, type, category, amount, note, created_at FROM cash_flow WHERE created_at BETWEEN ? AND ? ORDER BY id DESC", 
                               (f_start_str, f_end_str), fetch=True)
         
-        # 2. Đồng thời tự động tính Doanh thu bán cà phê tự động phát sinh trong khoảng thời gian này
         sales_str_start = f"{f_start_str} 00:00:00"
         sales_str_end = f"{f_end_str} 23:59:59"
         sales_data = run_query("SELECT SUM(final_price) FROM orders WHERE created_at BETWEEN ? AND ?", (sales_str_start, sales_str_end), fetch=True)
         total_sales_amount = sales_data[0][0] if sales_data and sales_data[0][0] is not None else 0
         
-        # Tính toán các chỉ số tổng hợp
         total_other_thu = 0
         total_chi = 0
         
@@ -702,14 +714,12 @@ elif choice == "💰 Quản Lý Thu Chi" and st.session_state.user_role == "Ch�
         total_tong_thu = total_sales_amount + total_other_thu
         loi_nhuan_rong = total_tong_thu - total_chi
         
-        # Hiển thị bảng tổng quan chỉ số tài chính
         st.markdown(f"#### 📅 Kết quả dòng tiền từ {f_start.strftime('%d/%m/%Y')} đến {f_end.strftime('%d/%m/%Y')}:")
         
         c_m1, c_m2, c_m3 = st.columns(3)
         c_m1.metric("Tổng Thu (Bán hàng + Thu ngoài)", f"{format_currency(total_tong_thu)} đ")
         c_m2.metric("Tổng Chi (Nguyên liệu, Mặt bằng...)", f"{format_currency(total_chi)} đ", delta_color="inverse")
         
-        # Đổi màu sắc tùy theo lãi hay lỗ dòng tiền
         if loi_nhuan_rong >= 0:
             c_m3.metric("📈 Lợi Nhuận Thuần (Còn lại)", f"{format_currency(loi_nhuan_rong)} đ")
         else:
@@ -728,12 +738,12 @@ elif choice == "💰 Quản Lý Thu Chi" and st.session_state.user_role == "Ch�
             df_flow_disp = df_flow_disp[["Mã phiếu", "Phân loại", "Danh mục", "Số tiền (đ)", "Ghi chú nội dung", "Ngày tạo"]]
             st.dataframe(df_flow_disp, use_container_width=True)
             
-            # Tính năng xóa phiếu thu chi nhập nhầm
             st.markdown("---")
             del_flow_id = st.number_input("Nhập Mã phiếu Thu/Chi muốn xóa do nhập nhầm:", min_value=1, step=1, key="del_flow_id")
             if st.button("Xóa phiếu chi tiêu"):
                 run_query("DELETE FROM cash_flow WHERE id = ?", (del_flow_id,))
-                st.success(f"Đã xóa phiếu thu chi số {del_flow_id} thành công.")
+                st.success(f"❌ Đã xóa phiếu thu chi số {del_flow_id} thành công khỏi sổ quỹ.")
+                st.toast("Đã xóa phiếu chi tiêu", icon="🗑️")
                 st.rerun()
 
 # --- CHỨC NĂNG 5: CÀI ĐẶT HỆ THỐNG ---
@@ -766,7 +776,8 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
                 try:
                     c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'Chủ quán')", (new_admin_user, new_admin_pass))
                     conn.commit()
-                    st.success("🎉 Đã cập nhật tài khoản Admin thành công! Hệ thống đăng xuất tự động.")
+                    st.success("🎉 Đã cập nhật tài khoản quản trị thành công! Đang tự động đăng xuất...")
+                    st.toast("Cập nhật Admin thành công!", icon="🔒")
                     conn.close()
                     logout()
                 except sqlite3.IntegrityError:
@@ -794,12 +805,13 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
         if st.button("💾 Lưu cấu hình máy in", type="primary"):
             run_query("UPDATE printer_config SET connection_type = ?, ip_address = ?, port = ? WHERE id = 1", 
                       (p_type, new_ip, new_port))
-            st.success("🎉 Đã cập nhật thông số cấu hình máy in thành công!")
+            st.success("🎉 Đã cập nhật thông số kết nối phần cứng máy in hóa đơn thành công!")
+            st.toast("Đã lưu cấu hình phần cứng!", icon="⚙️")
             st.rerun()
 
     with tab_vietqr:
         st.subheader("💳 Thiết lập Tài khoản nhận tiền qua mã QR Code")
-        st.info("💡 Hệ thống sử dụng cổng kết nối VietQR công khai. Vui lòng nhập đúng Tên viết tắt Ngân hàng của bạn (Ví dụ: Vietcombank, MBBank, Techcombank, ACB, BIDV...).")
+        st.info("💡 Hệ thống sử dụng cổng kết nối VietQR công khai. Vui lòng nhập đúng Tên viết tắt Ngân hàng của bạn (Ví dụ: Vietcombank, MBBank...).")
         
         current_pay = run_query("SELECT bank_id, account_no, account_name FROM payment_config WHERE id = 1", fetch=True)[0]
         new_bank_id = st.text_input("Tên viết tắt Ngân hàng (Ví dụ: Vietcombank, MBBank):", value=current_pay[0])
@@ -812,7 +824,8 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
             else:
                 run_query("UPDATE payment_config SET bank_id = ?, account_no = ?, account_name = ? WHERE id = 1", 
                           (new_bank_id.strip(), new_account_no.strip(), new_account_name.strip().upper()))
-                st.success("🎉 Đã lưu cấu hình tài khoản VietQR thành công! Hệ thống sẽ áp dụng mã QR mới ngay lập tức.")
+                st.success("🎉 Cấu hình VietQR mới đã được lưu thành công và áp dụng ngay lập tức.")
+                st.toast("Đã đổi tài khoản VietQR!", icon="💳")
                 st.rerun()
                     
     with tab_list:
@@ -836,7 +849,8 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
             
         if generate_click:
             st.session_state.temp_generated_pass = generate_random_password()
-            st.info(f"Mật khẩu ngẫu nhiên vừa sinh ra: **{st.session_state.temp_generated_pass}**")
+            st.info(f"🔑 Mật khẩu vừa tạo: **{st.session_state.temp_generated_pass}**")
+            st.toast("Đã tạo mật khẩu ngẫu nhiên", icon="🔑")
             
         if st.button("Thêm nhân viên"):
             if not add_username:
@@ -848,7 +862,8 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
                 else:
                     final_pass = add_password if add_password else st.session_state.get('temp_generated_pass', '12345678')
                     run_query("INSERT INTO users (username, password, role) VALUES (?, ?, 'Nhân viên')", (add_username, final_pass))
-                    st.success(f"Đã thêm thành công tài khoản: **{add_username}**")
+                    st.success(f"🎉 Đã thêm thành công tài khoản nhân viên: **{add_username}**")
+                    st.toast("Tạo tài khoản mới thành công!", icon="👥")
                     if 'temp_generated_pass' in st.session_state:
                         del st.session_state.temp_generated_pass
                     st.rerun()
@@ -864,7 +879,8 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
             if st.button("Cập nhật mật khẩu nhân viên"):
                 if new_staff_pass:
                     run_query("UPDATE users SET password = ? WHERE username = ?", (new_staff_pass, selected_staff))
-                    st.success(f"Đã đổi mật khẩu thành công cho nhân viên **{selected_staff}**!")
+                    st.success(f"✏️ Đã đổi mật khẩu thành công cho nhân viên **{selected_staff}**!")
+                    st.toast("Đổi mật khẩu thành công!", icon="🔐")
                     st.rerun()
                 else:
                     st.error("Vui lòng điền mật khẩu mới!")
@@ -873,5 +889,6 @@ elif choice == "⚙️ Cài Đặt Hệ Thống" and st.session_state.user_role 
             st.markdown(f"⚠️ **Khu vực nguy hiểm:**")
             if st.button(f"❌ Xóa hoàn toàn nhân viên {selected_staff}", type="secondary"):
                 run_query("DELETE FROM users WHERE username = ?", (selected_staff,))
-                st.success(f"Đã xóa tài khoản **{selected_staff}** khỏi hệ thống.")
+                st.success(f"❌ Đã xóa vĩnh viễn tài khoản **{selected_staff}** khỏi cơ sở dữ liệu.")
+                st.toast("Đã xóa nhân viên", icon="👥")
                 st.rerun()
